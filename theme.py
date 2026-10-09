@@ -75,6 +75,25 @@ def fmt_entero(valor: float | None) -> str:
     return _miles(valor)
 
 
+def texto_delta(valor: float | None, tipo: str) -> tuple[str | None, bool]:
+    """Variación para st.metric y si es neutra. Streamlit lee el '-' ASCII para la flecha."""
+    if valor is None:
+        return None, False
+    if tipo == "cop":
+        texto = fmt_variacion(valor)
+    elif tipo == "pct":
+        texto = fmt_pp(valor)
+    else:
+        texto = ("+" if valor >= 0 else "−") + fmt_nota(abs(valor))
+    if not any(c in "123456789" for c in texto):
+        return texto.lstrip("+−"), True
+    return texto.replace("−", "-"), False
+
+
+CONFIG_PLOTLY = {"displaylogo": False,
+                 "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}
+
+
 PLANTILLA = go.layout.Template(
     layout=dict(
         font=dict(family=FUENTE, size=13, color=COLORES["texto"]),

@@ -8,8 +8,8 @@ import streamlit as st
 
 import kpis
 from data import META_DIAS_ENTREGA, Contexto, etiqueta_mes
-from theme import (COLORES, estilo, fmt_entero, fmt_millones, fmt_nota,
-                   fmt_pct, fmt_pp, fmt_variacion)
+from theme import (CONFIG_PLOTLY, COLORES, estilo, fmt_entero, fmt_millones, fmt_nota,
+                   fmt_pct, fmt_pp, texto_delta)
 
 CLAVE_REGION = "resumen_region"
 CLAVE_INDICADOR = "resumen_indicador"
@@ -51,26 +51,6 @@ COORDENADAS_CIUDADES = {
     "Ibagué": (4.438, -75.232), "Manizales": (5.070, -75.517),
     "Pereira": (4.813, -75.696), "Villavicencio": (4.142, -73.627),
 }
-
-CONFIG_PLOTLY = {"displaylogo": False,
-                 "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}
-
-
-def _texto_delta(valor: float | None, tipo: str) -> tuple[str | None, bool]:
-    """Texto de la variación y si es neutra. Streamlit lee el '-' ASCII para la flecha."""
-    if valor is None:
-        return None, False
-    if tipo == "cop":
-        texto = fmt_variacion(valor)
-    elif tipo == "pct":
-        texto = fmt_pp(valor)
-    else:
-        texto = ("+" if valor >= 0 else "−") + fmt_nota(abs(valor))
-    neutro = not any(c in "123456789" for c in texto)
-    if neutro:
-        return texto.lstrip("+−"), True
-    return texto.replace("−", "-"), False
-
 
 def _cambio_tendencia(valores: pd.Series, tipo: str) -> float | None:
     """Cambio de la recta de tendencia en el periodo (relativo en montos)."""
@@ -146,7 +126,7 @@ def _tarjetas_kpi(ctx: Contexto) -> None:
             valor = actual[clave]
             delta, neutro = None, False
             if anterior is not None:
-                delta, neutro = _texto_delta(
+                delta, neutro = texto_delta(
                     kpis.variacion(valor, anterior[clave], meta["tipo"]), meta["tipo"]
                 )
             if neutro:
@@ -321,8 +301,8 @@ def _mapa_ciudades(ctx: Contexto) -> None:
     )
     estilo(
         fig, height=480, margin=dict(l=0, r=0, t=50, b=0),
-        title=f"{lider['ciudad']} concentra el {fmt_pct(lider['participacion'], 0)} "
-              "del ingreso",
+        title=(f"{lider['ciudad']} concentra el {fmt_pct(lider['participacion'], 0)} "
+               "del ingreso" if len(por_ciudad) > 1 else f"Ingreso de {lider['ciudad']}"),
     )
 
     mapa, tabla = st.columns([1.3, 1], gap="large")

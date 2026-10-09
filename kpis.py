@@ -33,6 +33,19 @@ def tasa_devolucion(df: pd.DataFrame) -> float | None:
     return _dividir(df["devolucion"].sum(), len(df))
 
 
+def utilidad(df: pd.DataFrame) -> float:
+    return float(df["utilidad"].sum())
+
+
+def ticket_promedio(df: pd.DataFrame) -> float | None:
+    """Ingreso por línea de venta."""
+    return _dividir(df["ingreso"].sum(), len(df))
+
+
+def unidades_por_linea(df: pd.DataFrame) -> float | None:
+    return _dividir(df["unidades"].sum(), len(df))
+
+
 def satisfaccion(df: pd.DataFrame) -> float | None:
     """Promedio de la calificación 1–5, sin las líneas que no tienen calificación."""
     calificaciones = df["calificacion"].dropna()
