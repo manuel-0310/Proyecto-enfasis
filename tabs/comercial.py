@@ -1,6 +1,5 @@
 """Pestaña Comercial (Manuel 2): P1 concentración del ingreso y P2 descuentos."""
 
-import altair as alt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -8,7 +7,7 @@ import streamlit as st
 
 import kpis
 from data import ETIQUETAS_DESCUENTO, Contexto
-from theme import (CONFIG_PLOTLY, COLORES, FUENTE, estilo, fmt_cop, fmt_entero,
+from theme import (CONFIG_PLOTLY, COLORES, estilo, fmt_cop, fmt_entero,
                    fmt_millones, fmt_nota, fmt_pct, texto_delta)
 
 CLAVE_PARETO = "comercial_pareto"
@@ -19,6 +18,11 @@ MIN_LINEAS = 300
 
 def _corto(nombre: str) -> str:
     return nombre.replace(" ", "<br>", 1) if len(nombre) > 12 else nombre
+
+
+def _titulo(que_es: str, conclusion: str) -> str:
+    """Título en dos niveles: qué muestra el gráfico (negrita) y su conclusión."""
+    return f"<b>{que_es}</b><br>{conclusion}"
 
 
 TARJETAS = [
@@ -76,16 +80,17 @@ def _pareto(df: pd.DataFrame, seleccion: list[str]) -> None:
     t["acumulado"] = t["participacion"].cumsum()
 
     if len(t) >= 2:
-        titulo = (f"{t.loc[0, 'categoria']} y {t.loc[1, 'categoria']} generan el "
-                  f"{fmt_pct(t.loc[1, 'acumulado'], 0)} del ingreso")
+        conclusion = (f"{t.loc[0, 'categoria']} y {t.loc[1, 'categoria']} generan el "
+                      f"{fmt_pct(t.loc[1, 'acumulado'], 0)} del ingreso")
     else:
-        titulo = f"Ingreso de {t.loc[0, 'categoria']}"
+        conclusion = f"Ingreso de {t.loc[0, 'categoria']}"
 
     colores = [COLORES["dato"] if not seleccion or c in seleccion else COLORES["contexto"]
                for c in t["categoria"]]
     fig = go.Figure()
     fig.add_bar(
-        x=t["categoria"], y=t["ingreso"] / 1e6, marker_color=colores, name="Ingreso",
+        x=t["categoria"], y=t["ingreso"] / 1e6, marker_color=colores,
+        name="Ingreso (barras)",
         text=[fmt_pct(p, 0) for p in t["participacion"]], textposition="outside",
         cliponaxis=False, textfont=dict(color=COLORES["texto_sec"]),
         customdata=np.column_stack([[fmt_millones(v) for v in t["ingreso"]],
@@ -96,16 +101,20 @@ def _pareto(df: pd.DataFrame, seleccion: list[str]) -> None:
                        "Líneas de venta: %{customdata[2]}<extra></extra>"),
         selected=dict(marker=dict(opacity=1)), unselected=dict(marker=dict(opacity=1)),
     )
+    # Línea naranja: suma del % del ingreso, de la categoría más grande a la más pequeña
     fig.add_scatter(
-        x=t["categoria"], y=t["acumulado"] * 100, yaxis="y2", name="% acumulado",
+        x=t["categoria"], y=t["acumulado"] * 100, yaxis="y2",
+        name="% acumulado del ingreso (línea naranja)",
         mode="lines+markers", line=dict(color=COLORES["atencion"], width=2),
         marker=dict(size=7), hovertemplate="%{x}<br>Acumulado: %{y:.1f} %<extra></extra>",
     )
-    fig.add_shape(type="line", xref="paper", x0=0, x1=1, yref="y2", y0=80, y1=80,
-                  line=dict(dash="dash", width=1, color=COLORES["texto_sec"]))
     estilo(
-        fig, title=titulo, height=400, clickmode="event+select", dragmode=False,
-        showlegend=False,
+        fig, title=_titulo("Ingreso por categoría y porcentaje acumulado", conclusion),
+        height=430, clickmode="event+select", dragmode=False,
+        margin=dict(l=10, r=20, t=130, b=10),
+        showlegend=True,
+        legend=dict(orientation="h", y=1.0, yanchor="bottom", x=0,
+                    itemclick=False, itemdoubleclick=False, font=dict(size=11)),
         xaxis=dict(title=None, tickangle=0, tickvals=t["categoria"],
                    ticktext=[_corto(c) for c in t["categoria"]]),
         yaxis=dict(title="Ingreso neto (millones de COP)", tickformat=",.0f",
@@ -119,56 +128,13 @@ def _pareto(df: pd.DataFrame, seleccion: list[str]) -> None:
                     on_select="rerun", selection_mode="points")
 
 
-def _lineas_vs_ingreso(df: pd.DataFrame) -> None:
-    """Qué parte de las líneas atiende cada categoría frente a lo que aporta al ingreso."""
-    t = df.groupby("categoria").agg(ingreso=("ingreso", "sum"), lineas=("ingreso", "size"))
-    t["pct_lineas"] = t["lineas"] / t["lineas"].sum()
-    t["pct_ingreso"] = t["ingreso"] / t["ingreso"].sum()
-    t["ticket"] = t["ingreso"] / t["lineas"]
-    t = t.sort_values("pct_ingreso")
-
-    brecha = t["pct_lineas"] - t["pct_ingreso"]
-    if len(t) < 2:
-        titulo = f"Líneas e ingreso de {t.index[0]}"
-    elif brecha.max() > 0.05:
-        c = brecha.idxmax()
-        titulo = (f"{c} ocupa el {fmt_pct(t.loc[c, 'pct_lineas'], 0)} de las líneas<br>"
-                  f"y aporta solo el {fmt_pct(t.loc[c, 'pct_ingreso'], 0)} del ingreso")
-    else:
-        titulo = "Cada categoría aporta al ingreso en proporción a sus líneas"
-
-    fig = go.Figure()
-    for categoria, fila in t.iterrows():
-        fig.add_scatter(x=[fila["pct_lineas"] * 100, fila["pct_ingreso"] * 100],
-                        y=[categoria, categoria], mode="lines",
-                        line=dict(color=COLORES["rejilla"], width=6),
-                        hoverinfo="skip", showlegend=False)
-    for columna, nombre, color in [("pct_lineas", "% de las líneas", COLORES["texto_sec"]),
-                                   ("pct_ingreso", "% del ingreso", COLORES["dato"])]:
-        fig.add_scatter(
-            x=t[columna] * 100, y=t.index, mode="markers", name=nombre,
-            marker=dict(size=13, color=color),
-            customdata=np.column_stack([[fmt_pct(v) for v in t[columna]],
-                                        [fmt_cop(v) for v in t["ticket"]]]),
-            hovertemplate=(f"<b>%{{y}}</b><br>{nombre}: %{{customdata[0]}}<br>"
-                           "Ticket promedio: %{customdata[1]}<extra></extra>"),
-        )
-    estilo(fig, title=titulo, height=400, margin=dict(l=10, r=20, t=95, b=10),
-           xaxis=dict(title="% del total", ticksuffix=" %", showgrid=True,
-                      gridcolor=COLORES["rejilla"], rangemode="tozero"),
-           yaxis=dict(title=None, showgrid=False, tickvals=list(t.index),
-                      ticktext=[_corto(c) for c in t.index]),
-           legend=dict(orientation="h", y=1.0, yanchor="bottom", x=0))
-    st.plotly_chart(fig, theme=None, config=CONFIG_PLOTLY, key="comercial_brecha")
-
-
 def _canal_de_categoria(df: pd.DataFrame, seleccion: list[str], nombre: str) -> None:
     datos = df[df["categoria"].isin(seleccion)] if seleccion else df
     t = (datos.groupby("canal").agg(ingreso=("ingreso", "sum"), lineas=("ingreso", "size"))
          .sort_values("ingreso"))
     t["participacion"] = t["ingreso"] / t["ingreso"].sum()
     lider = t.index[-1]
-    titulo = f"{lider} vende el {fmt_pct(t.loc[lider, 'participacion'], 0)} de {nombre}"
+    conclusion = f"{lider} vende el {fmt_pct(t.loc[lider, 'participacion'], 0)} de {nombre}"
 
     fig = go.Figure(go.Bar(
         x=t["ingreso"] / 1e6, y=t.index, orientation="h",
@@ -180,7 +146,8 @@ def _canal_de_categoria(df: pd.DataFrame, seleccion: list[str], nombre: str) -> 
         customdata=[fmt_entero(n) for n in t["lineas"]],
         hovertemplate="<b>%{y}</b><br>%{text}<br>Líneas de venta: %{customdata}<extra></extra>",
     ))
-    estilo(fig, title=titulo, height=300, showlegend=False,
+    estilo(fig, title=_titulo("Ingreso por canal de venta", conclusion), height=330,
+           margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
            xaxis=dict(title="Ingreso neto (millones de COP)", tickformat=",.0f", nticks=4,
                       showgrid=True, gridcolor=COLORES["rejilla"],
                       range=[0, t["ingreso"].max() / 1e6 * 1.45]),
@@ -194,36 +161,45 @@ def _margen_categoria_canal(df: pd.DataFrame) -> None:
     t["margen"] = t["utilidad"] / t["ingreso"]
     validos = t[t["lineas"] >= MIN_LINEAS]
     if len(validos) < 2:
-        titulo = "Margen por categoría y canal"
+        conclusion = "Margen por categoría y canal"
     elif validos["margen"].max() - validos["margen"].min() < 0.01:
-        titulo = (f"El margen va de {fmt_pct(validos['margen'].min())} a "
-                  f"{fmt_pct(validos['margen'].max())} en todos los cruces de categoría y canal")
+        conclusion = (f"El margen va de {fmt_pct(validos['margen'].min())} a "
+                      f"{fmt_pct(validos['margen'].max())}<br>en todos los cruces de "
+                      f"categoría y canal")
     else:
         categoria, canal = validos["margen"].idxmax()
-        titulo = (f"El mayor margen está en {categoria} por {canal}: "
-                  f"{fmt_pct(validos['margen'].max())}")
+        conclusion = (f"El mayor margen está en {categoria} por {canal}: "
+                      f"{fmt_pct(validos['margen'].max())}")
 
     matriz = t["margen"].unstack("canal")
+    lineas = t["lineas"].unstack("canal")
     fig = go.Figure(go.Heatmap(
         z=matriz.values, x=[_corto(c) for c in matriz.columns],
         y=[_corto(c) for c in matriz.index],
         text=[[fmt_pct(v) for v in fila] for fila in matriz.values],
-        texttemplate="%{text}", hovertemplate="%{y}<br>%{x}: %{text}<extra></extra>",
-        colorscale=[[0, "#F3F4F6"], [1, "#F3F4F6"]], showscale=False, xgap=3, ygap=3,
-        textfont=dict(color=COLORES["texto"]),
+        texttemplate="%{text}",
+        customdata=[[fmt_entero(n) for n in fila] for fila in lineas.values],
+        hovertemplate=("<b>%{y}</b> por %{x}<br>Margen: %{text}<br>"
+                       "Líneas de venta: %{customdata}<extra></extra>"),
+        # De claro a oscuro: más oscuro = mayor margen
+        colorscale=[[0, "#EAF1F8"], [1, COLORES["dato"]]], xgap=3, ygap=3,
+        colorbar=dict(title=dict(text="Margen", side="top"), tickformat=".1%",
+                      thickness=12, len=0.8, outlinewidth=0,
+                      tickfont=dict(color=COLORES["texto_sec"])),
     ))
-    estilo(fig, title=titulo.replace(" en todos", "<br>en todos"), height=340,
-           margin=dict(l=10, r=10, t=120, b=10),
-           xaxis=dict(side="top", showgrid=False), yaxis=dict(showgrid=False,
-                                                             autorange="reversed"))
+    estilo(fig, title=dict(text=_titulo("Margen por categoría y canal de venta", conclusion),
+                           y=0.98, yref="container", yanchor="top"),
+           height=400, margin=dict(l=10, r=10, t=100, b=10),
+           xaxis=dict(side="top", showgrid=False, tickangle=0,
+                      tickfont=dict(size=12, color=COLORES["texto_sec"])),
+           yaxis=dict(showgrid=False, autorange="reversed"))
     st.plotly_chart(fig, theme=None, config=CONFIG_PLOTLY, key="comercial_margen")
 
 
 def _por_rango(df: pd.DataFrame) -> pd.DataFrame:
     t = (df.groupby("rango_descuento", observed=False)
          .agg(lineas=("ingreso", "size"), descuento_cop=("descuento_cop", "sum"),
-              utilidad=("utilidad", "mean"), unidades=("unidades", "mean"),
-              satisfaccion=("calificacion", "mean"), devolucion=("devolucion", "mean"))
+              utilidad=("utilidad", "mean"), unidades=("unidades", "mean"))
          .reindex(ETIQUETAS_DESCUENTO).reset_index())
     t = t[t["lineas"] > 0].copy()
     t["rango_descuento"] = t["rango_descuento"].astype(str)
@@ -236,11 +212,11 @@ def _descuento_cedido(t: pd.DataFrame) -> None:
     t["participacion"] = t["descuento_cop"] / t["descuento_cop"].sum()
     top = t.sort_values("descuento_cop", ascending=False).head(2)
     if len(top) == 2:
-        titulo = (f"Los descuentos de {top.iloc[0]['rango_descuento']} y "
-                  f"{top.iloc[1]['rango_descuento']} concentran el "
-                  f"{fmt_pct(top['participacion'].sum(), 0)} de lo cedido")
+        conclusion = (f"Los descuentos de {top.iloc[0]['rango_descuento']} y "
+                      f"{top.iloc[1]['rango_descuento']} concentran el "
+                      f"{fmt_pct(top['participacion'].sum(), 0)} de lo cedido")
     else:
-        titulo = "Descuento cedido por rango"
+        conclusion = "Descuento cedido por rango"
 
     fig = go.Figure(go.Bar(
         x=t["rango_descuento"], y=t["descuento_cop"] / 1e6, marker_color=COLORES["atencion"],
@@ -251,7 +227,8 @@ def _descuento_cedido(t: pd.DataFrame) -> None:
         customdata=[fmt_entero(n) for n in t["lineas"]],
         hovertemplate="Descuento %{x}<br>%{text}<br>Líneas: %{customdata}<extra></extra>",
     ))
-    estilo(fig, title=titulo, height=360, showlegend=False,
+    estilo(fig, title=_titulo("Descuento cedido por rango de descuento", conclusion),
+           height=380, margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
            xaxis=dict(title="Rango de descuento"),
            yaxis=dict(title="Descuento cedido (millones de COP)", tickformat=",.0f",
                       range=[0, t["descuento_cop"].max() / 1e6 * 1.25]))
@@ -264,12 +241,12 @@ def _utilidad_por_linea(t: pd.DataFrame) -> None:
         inicio, fin = validos.iloc[0], validos.iloc[-1]
         caida = 1 - fin["utilidad"] / inicio["utilidad"]
         if caida >= 0.05:
-            titulo = (f"La utilidad por línea baja {fmt_pct(caida, 0)} entre "
-                      f"{inicio['rango_descuento']} y {fin['rango_descuento']} de descuento")
+            conclusion = (f"La utilidad por línea baja {fmt_pct(caida, 0)} entre "
+                          f"{inicio['rango_descuento']} y {fin['rango_descuento']} de descuento")
         else:
-            titulo = "La utilidad por línea se mantiene en todos los rangos de descuento"
+            conclusion = "La utilidad por línea se mantiene en todos los rangos de descuento"
     else:
-        titulo = "Utilidad por línea según el descuento"
+        conclusion = "Utilidad por línea según el descuento"
 
     fig = go.Figure(go.Bar(
         x=t["rango_descuento"], y=t["utilidad"],
@@ -281,64 +258,44 @@ def _utilidad_por_linea(t: pd.DataFrame) -> None:
         hovertemplate=("Descuento %{x}<br>Utilidad por línea: %{text}<br>"
                        "Líneas: %{customdata}<extra></extra>"),
     ))
-    estilo(fig, title=titulo, height=360, showlegend=False,
+    estilo(fig, title=_titulo("Utilidad promedio por línea según el descuento", conclusion),
+           height=380, margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
            xaxis=dict(title="Rango de descuento"),
            yaxis=dict(title="Utilidad promedio por línea (COP)", tickformat=",.0f",
                       range=[0, t["utilidad"].max() * 1.2]))
     st.plotly_chart(fig, theme=None, config=CONFIG_PLOTLY, key="comercial_utilidad")
 
 
-def _grafico_altair(t: pd.DataFrame, columna: str, titulo: str, dominio, formato) -> alt.Chart:
-    datos = t.assign(valor=t[columna], etiqueta=t[columna].map(formato))
-    base = alt.Chart(datos).encode(
-        x=alt.X("rango_descuento:N", sort=ETIQUETAS_DESCUENTO, title=None,
-                axis=alt.Axis(labelAngle=0)),
-        y=alt.Y("valor:Q", title=None, scale=alt.Scale(domain=dominio),
-                axis=alt.Axis(labelExpr="replace(datum.label, '.', ',')", tickCount=4)),
-        tooltip=[alt.Tooltip("rango_descuento:N", title="Descuento"),
-                 alt.Tooltip("etiqueta:N", title=titulo),
-                 alt.Tooltip("lineas:Q", title="Líneas", format=",")],
-    )
-    linea = base.mark_line(color=COLORES["dato"], strokeWidth=2.5)
-    puntos = base.mark_circle(size=70, color=COLORES["dato"], opacity=1)
-    return (linea + puntos).properties(title=titulo, height=220).configure(
-        font=FUENTE, background=COLORES["tarjeta"],
-    ).configure_title(anchor="start", fontSize=14, fontWeight="normal",
-                      color=COLORES["texto"]).configure_axis(
-        labelColor=COLORES["texto_sec"], gridColor=COLORES["rejilla"],
-        domainColor=COLORES["rejilla"], tickColor=COLORES["rejilla"], labelFontSize=11,
-    ).configure_view(strokeWidth=0)
-
-
-def _efecto_descuento(t: pd.DataFrame) -> None:
+def _unidades_por_rango(t: pd.DataFrame) -> None:
+    """¿Más descuento vende más? Unidades por línea de venta en cada rango."""
     validos = t[t["confiable"]]
     if len(validos) >= 2:
-        planos = [
-            (validos["unidades"].max() - validos["unidades"].min()) / validos["unidades"].mean() < 0.05,
-            validos["satisfaccion"].max() - validos["satisfaccion"].min() < 0.1,
-            validos["devolucion"].max() - validos["devolucion"].min() < 0.01,
-        ]
-        titulo = ("Con más descuento no se venden más unidades ni mejoran la satisfacción "
-                  "o las devoluciones" if all(planos)
-                  else "Unidades, satisfacción y devoluciones según el descuento")
+        media = validos["unidades"].mean()
+        plano = (validos["unidades"].max() - validos["unidades"].min()) / media < 0.05
+        if plano:
+            conclusion = "Con más descuento no se venden más unidades por línea"
+        else:
+            mejor = validos.loc[validos["unidades"].idxmax(), "rango_descuento"]
+            conclusion = f"Las líneas con descuento de {mejor} venden más unidades"
     else:
-        titulo = "Unidades, satisfacción y devoluciones según el descuento"
-    st.markdown(f"**{titulo}**")
+        conclusion = "Unidades por línea según el descuento"
 
-    if len(validos) >= 2:
-        t = validos
-    t = t.assign(devolucion=lambda d: d["devolucion"] * 100)
-    graficos = [
-        ("unidades", "Unidades por línea", [0, max(t["unidades"].max() * 1.3, 1)],
-         lambda v: fmt_nota(v)),
-        ("satisfaccion", "Satisfacción (1 a 5)", [1, 5], lambda v: fmt_nota(v)),
-        ("devolucion", "Tasa de devolución (%)", [0, max(t["devolucion"].max() * 1.5, 1)],
-         lambda v: fmt_pct(v / 100)),
-    ]
-    for columna, (campo, titulo_g, dominio, formato) in zip(st.columns(3), graficos):
-        with columna:
-            st.altair_chart(_grafico_altair(t, campo, titulo_g, dominio, formato),
-                            theme=None, width="stretch")
+    fig = go.Figure(go.Bar(
+        x=t["rango_descuento"], y=t["unidades"],
+        marker_color=[COLORES["dato"] if c else COLORES["contexto"] for c in t["confiable"]],
+        text=[fmt_nota(v) for v in t["unidades"]], textposition="outside", cliponaxis=False,
+        textfont=dict(color=COLORES["texto_sec"], size=12),
+        customdata=[fmt_entero(n) + ("" if c else " (muy pocas para comparar)")
+                    for n, c in zip(t["lineas"], t["confiable"])],
+        hovertemplate=("Descuento %{x}<br>Unidades por línea: %{text}<br>"
+                       "Líneas: %{customdata}<extra></extra>"),
+    ))
+    estilo(fig, title=_titulo("Unidades por línea según el descuento", conclusion),
+           height=380, margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
+           xaxis=dict(title="Rango de descuento"),
+           yaxis=dict(title="Unidades por línea (promedio)",
+                      range=[0, max(t["unidades"].max() * 1.3, 1)]))
+    st.plotly_chart(fig, theme=None, config=CONFIG_PLOTLY, key="comercial_unidades")
 
 
 def _simulacion_tope(df: pd.DataFrame) -> None:
@@ -346,16 +303,15 @@ def _simulacion_tope(df: pd.DataFrame) -> None:
     exceso = (df["descuento_pct"] - tope).clip(lower=0) / 100
     recuperado = float((exceso * df["precio_lista_total"]).sum())
     afectadas = int((exceso > 0).sum())
+    decimales = 1 if recuperado < 1e8 else 0
 
-    st.markdown(f"**Con un descuento máximo de {tope} %, se recuperarían "
-                f"{fmt_millones(recuperado, 1 if recuperado < 1e8 else 0)} de ingreso**")
+    st.markdown(f"**Simulador del tope de descuento**  \nCon un descuento máximo de {tope} %, "
+                f"se recuperarían {fmt_millones(recuperado, decimales)} de ingreso")
     with st.container(border=True):
-        control, ingreso, lineas = st.columns([1.4, 1, 1], gap="large",
-                                              vertical_alignment="center")
-        control.slider("Tope de descuento (%)", min_value=5, max_value=25, value=10,
-                       step=1, key=CLAVE_TOPE)
-        ingreso.metric("Ingreso recuperado",
-                       fmt_millones(recuperado, 1 if recuperado < 1e8 else 0),
+        st.slider("Tope de descuento (%)", min_value=5, max_value=25, value=10,
+                  step=1, key=CLAVE_TOPE)
+        ingreso, lineas = st.columns(2, gap="large")
+        ingreso.metric("Ingreso recuperado", fmt_millones(recuperado, decimales),
                        help="Σ (descuento por encima del tope × precio de lista). "
                             "Supone que las unidades vendidas no cambian.")
         lineas.metric("Líneas con descuento recortado", fmt_entero(afectadas),
@@ -373,7 +329,7 @@ def render(ctx: Contexto) -> None:
     with izquierda:
         _pareto(df, seleccion)
     with derecha:
-        _lineas_vs_ingreso(df)
+        pass  # espacio reservado para el gráfico que reemplaza al de puntos y líneas
     izquierda, derecha = st.columns([1.2, 1], gap="large")
     with izquierda:
         nombre = ", ".join(seleccion or ctx.filtros.get("categoria") or []) \
@@ -389,5 +345,8 @@ def render(ctx: Contexto) -> None:
         _descuento_cedido(rangos)
     with derecha:
         _utilidad_por_linea(rangos)
-    _efecto_descuento(rangos)
-    _simulacion_tope(df)
+    izquierda, derecha = st.columns(2, gap="large")
+    with izquierda:
+        _unidades_por_rango(rangos)
+    with derecha:
+        _simulacion_tope(df)
