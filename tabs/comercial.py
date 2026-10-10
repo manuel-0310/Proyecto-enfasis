@@ -16,6 +16,9 @@ CLAVE_TOPE = "comercial_tope"
 # Grupos con menos líneas no se usan para sacar conclusiones en los títulos
 MIN_LINEAS = 300
 
+# El gráfico de canal y la matriz de margen comparten altura para quedar alineados
+ALTO_FILA_2 = 380
+
 def _corto(nombre: str) -> str:
     return nombre.replace(" ", "<br>", 1) if len(nombre) > 12 else nombre
 
@@ -146,7 +149,8 @@ def _canal_de_categoria(df: pd.DataFrame, seleccion: list[str], nombre: str) -> 
         customdata=[fmt_entero(n) for n in t["lineas"]],
         hovertemplate="<b>%{y}</b><br>%{text}<br>Líneas de venta: %{customdata}<extra></extra>",
     ))
-    estilo(fig, title=_titulo("Ingreso por canal de venta", conclusion), height=330,
+    estilo(fig, title=_titulo("Ingreso por canal de venta", conclusion),
+           height=ALTO_FILA_2,
            margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
            xaxis=dict(title="Ingreso neto (millones de COP)", tickformat=",.0f", nticks=4,
                       showgrid=True, gridcolor=COLORES["rejilla"],
@@ -187,9 +191,10 @@ def _margen_categoria_canal(df: pd.DataFrame) -> None:
                       thickness=12, len=0.8, outlinewidth=0,
                       tickfont=dict(color=COLORES["texto_sec"])),
     ))
+    # Título anclado arriba con un colchón (pad) para que no se corte; canales horizontales
     estilo(fig, title=dict(text=_titulo("Margen por categoría y canal de venta", conclusion),
-                           y=0.98, yref="container", yanchor="top"),
-           height=400, margin=dict(l=10, r=10, t=100, b=10),
+                           y=1, yref="container", yanchor="top", pad=dict(t=28)),
+           height=ALTO_FILA_2, margin=dict(l=10, r=10, t=150, b=10),
            xaxis=dict(side="top", showgrid=False, tickangle=0,
                       tickfont=dict(size=12, color=COLORES["texto_sec"])),
            yaxis=dict(showgrid=False, autorange="reversed"))
