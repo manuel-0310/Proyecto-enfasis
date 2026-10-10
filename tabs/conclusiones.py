@@ -74,7 +74,8 @@ def _p2(df: pd.DataFrame) -> None:
     recuperado = float((exceso * df["precio_lista_total"]).sum())
 
     rangos = (df.groupby("rango_descuento", observed=False)
-              .agg(unidades=("unidades", "mean"), lineas=("unidades", "size"))
+              .agg(unidades=("unidades", "mean"), utilidad=("utilidad", "mean"),
+                   lineas=("unidades", "size"))
               .reindex(ETIQUETAS_DESCUENTO))
     rangos = rangos[rangos["lineas"] >= MIN_LINEAS]
 
@@ -82,12 +83,17 @@ def _p2(df: pd.DataFrame) -> None:
     if len(rangos) >= 2:
         minimo, maximo = rangos["unidades"].min(), rangos["unidades"].max()
         if (maximo - minimo) / rangos["unidades"].mean() < 0.05:
-            significa += (f" Con más descuento no se venden más unidades: todas las líneas "
-                          f"venden entre {fmt_nota(minimo)} y {fmt_nota(maximo)} por línea.")
+            significa += (f" Con más descuento no se venden más unidades: entre "
+                          f"{fmt_nota(minimo)} y {fmt_nota(maximo)} por línea en todos "
+                          "los rangos.")
         else:
             mejor = rangos["unidades"].idxmax()
             significa += (f" Las líneas con descuento de {mejor} venden más unidades "
                           f"({fmt_nota(maximo)} por línea).")
+        caida = 1 - rangos["utilidad"].iloc[-1] / rangos["utilidad"].iloc[0]
+        if caida >= 0.05:
+            significa += (f" La utilidad por línea baja {fmt_pct(caida, 0)} entre "
+                          f"{rangos.index[0]} y {rangos.index[-1]} de descuento.")
 
     decision = (f"Poner un tope de {tope} % al descuento: recuperaría "
                 f"{fmt_millones(recuperado)} de ingreso si las unidades no cambian.")
