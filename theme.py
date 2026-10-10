@@ -2,6 +2,7 @@
 
 import math
 
+import altair as alt
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -19,7 +20,7 @@ COLORES = {
     "tarjeta": "#FFFFFF",
 }
 
-FUENTE = "Source Sans Pro, Arial, sans-serif"
+FUENTE = '"Source Sans", "Source Sans 3", "Source Sans Pro", Arial, sans-serif'
 
 
 def _es_vacio(valor) -> bool:
@@ -124,3 +125,20 @@ def estilo(fig: go.Figure, **layout) -> go.Figure:
     fig.update_xaxes(automargin=True)
     fig.update_yaxes(automargin=True)
     return fig
+
+
+def estilo_altair(grafico: alt.TopLevelMixin) -> alt.TopLevelMixin:
+    """Mismo aspecto que los gráficos de Plotly. Mostrar con st.altair_chart(..., theme=None)."""
+    return grafico.configure(
+        font=FUENTE, background=COLORES["tarjeta"], padding=12,
+    ).configure_title(
+        anchor="start", fontSize=16, fontWeight="normal", color=COLORES["texto"],
+        subtitleFontSize=15, subtitleColor=COLORES["texto"], subtitlePadding=4, offset=14,
+    ).configure_axis(
+        labelColor=COLORES["texto_sec"], titleColor=COLORES["texto_sec"],
+        titleFontWeight="normal", titleFontSize=13, labelFontSize=12,
+        gridColor=COLORES["rejilla"], domainColor=COLORES["rejilla"],
+        tickColor=COLORES["rejilla"],
+    ).configure_axisY(grid=False).configure_legend(
+        labelColor=COLORES["texto"], labelFontSize=12, symbolSize=120,
+    ).configure_view(strokeWidth=0)

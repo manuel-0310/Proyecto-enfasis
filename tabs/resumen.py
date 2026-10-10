@@ -1,5 +1,6 @@
 """Pestaña Resumen: KPI arriba, tendencia y regiones al centro, mapa abajo (lectura en Z)."""
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -8,7 +9,7 @@ import streamlit as st
 
 import kpis
 from data import META_DIAS_ENTREGA, Contexto, etiqueta_mes
-from theme import (CONFIG_PLOTLY, COLORES, estilo, fmt_entero, fmt_millones, fmt_nota,
+from theme import (CONFIG_PLOTLY, COLORES, estilo, estilo_altair, fmt_entero, fmt_millones, fmt_nota,
                    fmt_pct, fmt_pp, texto_delta)
 
 CLAVE_REGION = "resumen_region"
@@ -43,6 +44,9 @@ EJE_Y = {"ingreso": "Millones de COP", "margen": "% del ingreso",
 # Cambio mínimo en la recta de tendencia para no llamarla "estable"
 UMBRAL_ESTABLE = {"cop": 0.05, "pct": 0.01, "nota": 0.10}
 
+# Con menos líneas por mes la tendencia es ruido y el título no concluye
+MIN_LINEAS_MES = 100
+
 COORDENADAS_CIUDADES = {
     "Bogotá D.C.": (4.711, -74.072), "Medellín": (6.244, -75.581),
     "Cali": (3.452, -76.532), "Barranquilla": (10.964, -74.796),
@@ -72,8 +76,8 @@ def titulo_tendencia(clave: str, mensual: pd.DataFrame, valor_periodo) -> str:
     tipo = kpis.KPIS[clave]["tipo"]
     sujeto = SUJETO[clave]
     cambio = _cambio_tendencia(mensual[clave], tipo)
-    if cambio is None:
-        return f"{sujeto} por mes"
+    if cambio is None or mensual["lineas"].median() < MIN_LINEAS_MES:
+        return f"{kpis.KPIS[clave]['nombre']} por mes"
     if tipo == "cop":
         referencia = f"en torno a {fmt_millones(mensual[clave].mean())} al mes"
         variacion = f"{fmt_pct(abs(cambio), 0)} en el periodo"
@@ -93,15 +97,15 @@ def titulo_tendencia(clave: str, mensual: pd.DataFrame, valor_periodo) -> str:
 
 
 def _regiones_seleccionadas(disponibles) -> list[str]:
-    """Regiones elegidas con clic en las barras (selección cruzada)."""
+    """Regiones elegidas con clic en las barras de Altair (selección cruzada)."""
     estado = st.session_state.get(CLAVE_REGION)
     try:
-        puntos = estado["selection"]["points"]
+        puntos = estado["selection"]["region"]
     except (KeyError, TypeError):
         return []
     elegidas = []
     for punto in puntos:
-        region = punto.get("y")
+        region = punto.get("region")
         if region in disponibles and region not in elegidas:
             elegidas.append(region)
     return elegidas
@@ -214,52 +218,53 @@ def _tendencia(datos: pd.DataFrame, regiones: list[str]) -> None:
 
 
 def _ingreso_por_region(ctx: Contexto, seleccion: list[str]) -> None:
-    por_region = (ctx.filtrados.groupby("region")
-                  .agg(ingreso=("ingreso", "sum"), lineas=("ingreso", "size"))
-                  .sort_values("ingreso"))
-    por_region["participacion"] = por_region["ingreso"] / por_region["ingreso"].sum()
-    por_region["ticket"] = por_region["ingreso"] / por_region["lineas"]
-
-    lider = por_region.index[-1]
+    """Barras en Altair; el clic en una región filtra la tendencia de Plotly."""
+    t = (ctx.filtrados.groupby("region")
+         .agg(ingreso=("ingreso", "sum"), lineas=("ingreso", "size"))
+         .sort_values("ingreso", ascending=False).reset_index())
+    t["participacion"] = t["ingreso"] / t["ingreso"].sum()
+    lider = t.loc[0, "region"]
     resaltadas = seleccion or [lider]
-    colores = [COLORES["dato"] if r in resaltadas else COLORES["contexto"]
-               for r in por_region.index]
-    if len(por_region) > 1:
-        titulo = (f"{lider} concentra el "
-                  f"{fmt_pct(por_region.loc[lider, 'participacion'], 0)} del ingreso")
-    else:
-        titulo = f"Ingreso de {lider}"
-
-    fig = go.Figure(go.Bar(
-        x=por_region["ingreso"] / 1e6, y=por_region.index, orientation="h",
-        marker_color=colores,
-        text=[f"{fmt_millones(v)} · {fmt_pct(p, 0)}"
-              for v, p in zip(por_region["ingreso"], por_region["participacion"])],
-        textposition="outside", cliponaxis=False,
-        textfont=dict(color=COLORES["texto_sec"], size=12),
-        customdata=np.column_stack([
-            [fmt_millones(v) for v in por_region["ingreso"]],
-            [fmt_pct(p) for p in por_region["participacion"]],
-            [fmt_entero(n) for n in por_region["lineas"]],
-            [fmt_millones(t, 2) for t in por_region["ticket"]],
-        ]),
-        hovertemplate=("<b>%{y}</b><br>Ingreso: %{customdata[0]}<br>"
-                       "Participación: %{customdata[1]}<br>"
-                       "Líneas de venta: %{customdata[2]}<br>"
-                       "Ticket promedio: %{customdata[3]}<extra></extra>"),
-        selected=dict(marker=dict(opacity=1)),
-        unselected=dict(marker=dict(opacity=1)),
-    ))
-    estilo(
-        fig, height=max(300, 70 + 44 * len(por_region)),
-        title=titulo, showlegend=False, clickmode="event+select", dragmode=False,
-        xaxis=dict(title="Ingreso neto (millones de COP)", showgrid=True,
-                   gridcolor=COLORES["rejilla"], tickformat=",.0f", nticks=4,
-                   range=[0, por_region["ingreso"].max() / 1e6 * 1.45]),
-        yaxis=dict(title=None, showgrid=False),
+    t = t.assign(
+        millones=t["ingreso"] / 1e6,
+        color=[COLORES["dato"] if r in resaltadas else COLORES["contexto"] for r in t["region"]],
+        etiqueta=[f"{fmt_millones(v)} · {fmt_pct(p, 0)}"
+                  for v, p in zip(t["ingreso"], t["participacion"])],
+        ingreso_txt=t["ingreso"].map(fmt_millones),
+        participacion_txt=t["participacion"].map(fmt_pct),
+        lineas_txt=t["lineas"].map(fmt_entero),
+        ticket_txt=(t["ingreso"] / t["lineas"]).map(lambda v: fmt_millones(v, 2)),
     )
-    st.plotly_chart(fig, theme=None, config=CONFIG_PLOTLY, key=CLAVE_REGION,
-                    on_select="rerun", selection_mode="points")
+    titulo = (f"{lider} concentra el {fmt_pct(t.loc[0, 'participacion'], 0)} del ingreso"
+              if len(t) > 1 else f"Ingreso de {lider}")
+
+    clic = alt.selection_point(name="region", fields=["region"], on="click",
+                               clear="dblclick")
+    base = alt.Chart(t).encode(
+        y=alt.Y("region:N", sort=None, title=None,
+                axis=alt.Axis(labelLimit=200, ticks=False, domain=False)),
+        x=alt.X("millones:Q", title="Ingreso neto (millones de COP)",
+                scale=alt.Scale(domain=[0, t["millones"].max() * 1.6]),
+                axis=alt.Axis(tickCount=4, format=",.0f",
+                              labelExpr="replace(datum.label, regexp(',', 'g'), '.')")),
+        tooltip=[alt.Tooltip("region:N", title="Región"),
+                 alt.Tooltip("ingreso_txt:N", title="Ingreso"),
+                 alt.Tooltip("participacion_txt:N", title="Participación"),
+                 alt.Tooltip("lineas_txt:N", title="Líneas de venta"),
+                 alt.Tooltip("ticket_txt:N", title="Ticket promedio")],
+    )
+    barras = base.mark_bar(size=30, cursor="pointer").encode(
+        color=alt.Color("color:N", scale=None)).add_params(clic)
+    etiquetas = base.mark_text(align="left", dx=4, fontSize=12,
+                               color=COLORES["texto_sec"]).encode(text="etiqueta:N")
+    grafico = estilo_altair((barras + etiquetas).properties(
+        title=alt.TitleParams(titulo, anchor="start", fontSize=16, fontWeight="normal",
+                              color=COLORES["texto"], offset=14),
+        height=max(250, min(420, 60 * len(t))),
+    ))
+
+    st.altair_chart(grafico, theme=None, width="stretch", key=CLAVE_REGION,
+                    on_select="rerun", selection_mode="region")
 
 
 def _mapa_ciudades(ctx: Contexto) -> None:

@@ -16,8 +16,9 @@ CLAVE_TOPE = "comercial_tope"
 # Grupos con menos líneas no se usan para sacar conclusiones en los títulos
 MIN_LINEAS = 300
 
-# El gráfico de canal y la matriz de margen comparten altura para quedar alineados
-ALTO_FILA_2 = 380
+# Pareto y margen van lado a lado con la misma altura; el canal va solo debajo
+ALTO_FILA_1 = 430
+ALTO_CANAL = 340
 
 def _corto(nombre: str) -> str:
     return nombre.replace(" ", "<br>", 1) if len(nombre) > 12 else nombre
@@ -113,7 +114,7 @@ def _pareto(df: pd.DataFrame, seleccion: list[str]) -> None:
     )
     estilo(
         fig, title=_titulo("Ingreso por categoría y porcentaje acumulado", conclusion),
-        height=430, clickmode="event+select", dragmode=False,
+        height=ALTO_FILA_1, clickmode="event+select", dragmode=False,
         margin=dict(l=10, r=20, t=130, b=10),
         showlegend=True,
         legend=dict(orientation="h", y=1.0, yanchor="bottom", x=0,
@@ -150,7 +151,7 @@ def _canal_de_categoria(df: pd.DataFrame, seleccion: list[str], nombre: str) -> 
         hovertemplate="<b>%{y}</b><br>%{text}<br>Líneas de venta: %{customdata}<extra></extra>",
     ))
     estilo(fig, title=_titulo("Ingreso por canal de venta", conclusion),
-           height=ALTO_FILA_2,
+           height=ALTO_CANAL,
            margin=dict(l=10, r=20, t=80, b=10), showlegend=False,
            xaxis=dict(title="Ingreso neto (millones de COP)", tickformat=",.0f", nticks=4,
                       showgrid=True, gridcolor=COLORES["rejilla"],
@@ -194,7 +195,7 @@ def _margen_categoria_canal(df: pd.DataFrame) -> None:
     # Título anclado arriba con un colchón (pad) para que no se corte; canales horizontales
     estilo(fig, title=dict(text=_titulo("Margen por categoría y canal de venta", conclusion),
                            y=1, yref="container", yanchor="top", pad=dict(t=28)),
-           height=ALTO_FILA_2, margin=dict(l=10, r=10, t=150, b=10),
+           height=ALTO_FILA_1, margin=dict(l=10, r=10, t=150, b=10),
            xaxis=dict(side="top", showgrid=False, tickangle=0,
                       tickfont=dict(size=12, color=COLORES["texto_sec"])),
            yaxis=dict(showgrid=False, autorange="reversed"))
@@ -334,14 +335,10 @@ def render(ctx: Contexto) -> None:
     with izquierda:
         _pareto(df, seleccion)
     with derecha:
-        pass  # espacio reservado para el gráfico que reemplaza al de puntos y líneas
-    izquierda, derecha = st.columns([1.2, 1], gap="large")
-    with izquierda:
-        nombre = ", ".join(seleccion or ctx.filtros.get("categoria") or []) \
-            or "todas las categorías"
-        _canal_de_categoria(df, seleccion, nombre)
-    with derecha:
         _margen_categoria_canal(df)
+    nombre = ", ".join(seleccion or ctx.filtros.get("categoria") or []) \
+        or "todas las categorías"
+    _canal_de_categoria(df, seleccion, nombre)
 
     st.subheader("¿Cuánto se cede en descuentos y qué se obtiene a cambio?")
     rangos = _por_rango(df)
